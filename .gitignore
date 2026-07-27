@@ -1,0 +1,9 @@
+.env
+*.log
+.DS_Store
+Thumbs.db
+node_modules/
+backups/
+auth.json
+settings.json
+sessions/
