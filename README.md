@@ -2,6 +2,8 @@
 
 Unofficial Galatasaray-inspired theme and startup interface for [Pi Agent](https://github.com/earendil-works/pi-mono).
 
+![Galatasaray theme preview](galatasaray-pi.png)
+
 ## Features
 
 - Galatasaray-inspired red and yellow color palette
