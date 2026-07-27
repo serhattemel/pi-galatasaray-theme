@@ -4,6 +4,9 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 const THEME_NAME = "Galatasaray";
 const STATUS_KEY = "galatasaray-theme";
 const POLL_INTERVAL_MS = 1000;
+const FULL_LOGO_MIN_WIDTH = 72;
+const COMPACT_LOGO_MIN_WIDTH = 36;
+const BRAND_ONLY_MIN_WIDTH = 20;
 
 const LOGO_LINES = String.raw`
               ▒▓▓▓▓▓▓▓▓▓▒
@@ -46,13 +49,36 @@ const LOGO_INDENT = Math.min(
 const NORMALIZED_LOGO_LINES = LOGO_LINES.map((line) => line.slice(LOGO_INDENT));
 const LOGO_WIDTH = Math.max(...NORMALIZED_LOGO_LINES.map((line) => line.length));
 
+const COMPACT_LOGO_LINES = String.raw`
+       ▒▓▓▓▓▓▓
+     ▒▓▓▓▓▓▓▓▓▓▒
+     ▒▓▓▒    ▒▓▓▒
+     ▒▓▓▒░██░
+   ░███░▒▓▓▓▒░████░
+  ░██░     ▒▓▓▓▓██░
+ ░██░        ▒▓▓▓▒
+░██░▒▓▒        ░████░
+░██░▒▓▒        ░████░
+░██░▒▓▒        ▒▓▒░██░
+ ░██▒▓▓▒      ▒▓▓▒░██░
+  ░██▒▓▓▓▓▓▓▓▓▓▓▒░██░
+   ░████▒▓▓▓▓▒████░
+     ░██████████░
+`
+  .trimEnd()
+  .split("\n")
+  .slice(1)
+  .map((line) => line.trimEnd());
+
+const COMPACT_LOGO_WIDTH = Math.max(...COMPACT_LOGO_LINES.map((line) => line.length));
+
 function centerLine(line: string, width: number): string {
   const padding = Math.max(0, Math.floor((width - visibleWidth(line)) / 2));
   return truncateToWidth(`${" ".repeat(padding)}${line}`, width, "");
 }
 
-function colorLogoLine(line: string, theme: Theme): string {
-  const canvas = line.padEnd(LOGO_WIDTH);
+function colorLogoLine(line: string, theme: Theme, logoWidth = LOGO_WIDTH): string {
+  const canvas = line.padEnd(logoWidth);
   return (canvas.match(/[▓▒]+|[^▓▒]+/gu) ?? [])
     .map((segment) =>
       segment.startsWith("▓") || segment.startsWith("▒")
@@ -116,16 +142,45 @@ export default function (pi: ExtensionAPI) {
             theme.fg("muted", "Pi Agent"),
           ].join(" ");
 
-          return [
-            "",
-            centerLine(separator, width),
-            ...NORMALIZED_LOGO_LINES.map((line) => centerLine(colorLogoLine(line, theme), width)),
-            "",
-            centerLine(title, width),
-            centerLine(subtitle, width),
-            centerLine(separator, width),
-            "",
-          ];
+          const brand = [centerLine(title, width), centerLine(subtitle, width)];
+
+          if (width >= FULL_LOGO_MIN_WIDTH) {
+            return [
+              "",
+              separator,
+              ...NORMALIZED_LOGO_LINES.map((line) =>
+                centerLine(colorLogoLine(line, theme), width),
+              ),
+              "",
+              ...brand,
+              separator,
+              "",
+            ];
+          }
+
+          if (width >= COMPACT_LOGO_MIN_WIDTH) {
+            return [
+              "",
+              separator,
+              ...COMPACT_LOGO_LINES.map((line) =>
+                centerLine(colorLogoLine(line, theme, COMPACT_LOGO_WIDTH), width),
+              ),
+              "",
+              ...brand,
+              separator,
+              "",
+            ];
+          }
+
+          if (width >= BRAND_ONLY_MIN_WIDTH) {
+            return ["", separator, ...brand, separator, ""];
+          }
+
+          const minimalBrand =
+            theme.fg("error", theme.bold("GS")) +
+            theme.fg("dim", " · ") +
+            theme.fg("accent", theme.bold("1905"));
+          return ["", centerLine(minimalBrand, width), ""];
         },
         invalidate() {},
       }));

@@ -7,6 +7,7 @@ Unofficial Galatasaray-inspired theme and startup interface for [Pi Agent](https
 ## Features
 
 - Galatasaray-inspired red and yellow color palette
+- Responsive full, compact, and text-only startup branding
 - Custom block-art startup logo
 - Custom startup header, working indicator, and status badge
 
