@@ -33,6 +33,7 @@
 | 14 | Kurulum sonrası karşılama | İlk kurulumda kısa kullanım ve komut rehberi gösterir | Düşük | 💡 Fikir |
 | 15 | Maç günü modu | İsteğe bağlı olarak sonraki maç bilgisini önbellekli bir widget'ta gösterir | Düşük | 💡 Fikir |
 | 16 | Temalı başarı/hata bildirimleri | Uzun işlemler tamamlandığında sade GS bildirimleri gösterir | Düşük | 💡 Fikir |
+| 17 | İstek süre göstergesi | Her agent isteğinin canlı ve tamamlanmış toplam süresini alt panelde gösterir | Yüksek | ✅ Tamamlandı |
 
 ## Uygulama sırası önerisi
 

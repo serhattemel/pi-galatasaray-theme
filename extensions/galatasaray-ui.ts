@@ -20,7 +20,7 @@ const CONTEXT_BAR_COLORS = [
   [126, 21, 48], // #7E1530
 ] as const;
 const CONTEXT_BAR_WIDTH = CONTEXT_BAR_COLORS.length;
-const FULL_STATUS_MIN_WIDTH = 60;
+const FULL_STATUS_MIN_WIDTH = 72;
 const COMPACT_STATUS_MIN_WIDTH = 40;
 const MINIMAL_STATUS_MIN_WIDTH = 28;
 const STATUS_THEME_COLORS = [
@@ -138,6 +138,7 @@ function colorContextCell(
 }
 
 type ThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
+type ContextUsageSnapshot = ReturnType<ExtensionContext["getContextUsage"]>;
 
 function sanitizeStatusText(text: string): string {
   return text
@@ -220,12 +221,47 @@ function getStatusThemeSignature(theme: Theme): string {
   ].join("|");
 }
 
+function formatElapsed(milliseconds: number | undefined, compact: boolean): string {
+  if (milliseconds === undefined) return "--";
+  if (milliseconds < 1000) return milliseconds === 0 ? "0s" : "<1s";
+
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (compact) {
+    if (totalMinutes < 60) return `${totalMinutes}m`;
+    const hours = Math.floor(totalMinutes / 60);
+    return hours < 100 ? `${hours}h` : "99h+";
+  }
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m${String(totalSeconds % 60).padStart(2, "0")}s`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  if (hours >= 100) return "99h+";
+  return `${hours}h${String(totalMinutes % 60).padStart(2, "0")}m`;
+}
+
+function colorElapsed(
+  theme: Theme,
+  milliseconds: number | undefined,
+  active: boolean,
+  compact: boolean,
+): string {
+  const elapsed = formatElapsed(milliseconds, compact);
+  return theme.fg(active ? "warning" : "text", elapsed);
+}
+
 function buildSmartStatus(
   ctx: ExtensionContext,
   theme: Theme,
   terminalWidth: number,
+  usage: ContextUsageSnapshot,
+  elapsedMilliseconds: number | undefined,
+  requestActive: boolean,
 ): string {
-  const usage = ctx.getContextUsage();
   const percent = usage?.percent;
   const isKnown = typeof percent === "number" && Number.isFinite(percent);
   const visualPercent = isKnown ? Math.min(100, Math.max(0, percent)) : 0;
@@ -247,6 +283,10 @@ function buildSmartStatus(
       separator,
       theme.fg("accent", theme.bold("1905")),
     ].join(" ");
+    const elapsed =
+      theme.fg("accent", "⏱") +
+      " " +
+      colorElapsed(theme, elapsedMilliseconds, requestActive, false);
     return [
       brand,
       separator,
@@ -258,6 +298,8 @@ function buildSmartStatus(
       theme.fg("muted", compactModelId(modelId, 18)),
       separator,
       colorThinkingLevel(thinkingLevel, theme),
+      separator,
+      elapsed,
     ].join(" ");
   }
 
@@ -266,13 +308,13 @@ function buildSmartStatus(
       theme.fg("error", theme.bold("GS")),
       separator,
       percentage,
-      theme.fg("dim", "[") +
-        buildContextBar(theme, visualPercent, CONTEXT_BAR_WIDTH) +
-        theme.fg("dim", "]"),
+      buildContextBar(theme, visualPercent, 5),
       separator,
-      theme.fg("muted", compactModelId(modelId, 8)),
+      theme.fg("muted", compactModelId(modelId, 7)),
       separator,
       colorThinkingLevel(thinkingLevel, theme, true),
+      separator,
+      colorElapsed(theme, elapsedMilliseconds, requestActive, true),
     ].join(" ");
   }
 
@@ -280,20 +322,38 @@ function buildSmartStatus(
     return [
       theme.fg("error", theme.bold("GS")),
       percentage,
-      theme.fg("muted", compactModelId(modelId, 8)),
+      theme.fg("muted", compactModelId(modelId, 5)),
       colorThinkingLevel(thinkingLevel, theme, true),
-      theme.fg("dim", "[") +
-        buildContextBar(theme, visualPercent, Math.min(5, CONTEXT_BAR_WIDTH)) +
-        theme.fg("dim", "]"),
+      colorElapsed(theme, elapsedMilliseconds, requestActive, true),
+      buildContextBar(theme, visualPercent, 5),
     ].join(" ");
   }
 
-  return [
-    percentage,
-    theme.fg("muted", compactModelId(modelId, 5)),
-    colorThinkingLevel(thinkingLevel, theme, true),
-    buildContextBar(theme, visualPercent, Math.min(5, CONTEXT_BAR_WIDTH)),
-  ].join(" ");
+  if (terminalWidth >= 20) {
+    return [
+      percentage,
+      theme.fg("muted", compactModelId(modelId, 5)),
+      colorThinkingLevel(thinkingLevel, theme, true),
+      colorElapsed(theme, elapsedMilliseconds, requestActive, true),
+    ].join(" ");
+  }
+
+  if (terminalWidth >= 14) {
+    return [
+      percentage,
+      colorThinkingLevel(thinkingLevel, theme, true),
+      colorElapsed(theme, elapsedMilliseconds, requestActive, true),
+    ].join(" ");
+  }
+
+  if (terminalWidth >= 9) {
+    return [
+      percentage,
+      colorElapsed(theme, elapsedMilliseconds, requestActive, true),
+    ].join(" ");
+  }
+
+  return truncateToWidth(percentage, terminalWidth, "");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -304,6 +364,10 @@ export default function (pi: ExtensionAPI) {
   let lastStatus: string | undefined;
   let lastStatusThemeSignature: string | undefined;
   let lastStatusWidth: number | undefined;
+  let cachedContextUsage: ContextUsageSnapshot;
+  let contextUsageCached = false;
+  let requestStartedAt: number | undefined;
+  let lastRequestDuration: number | undefined;
 
   const resetUi = (ctx?: ExtensionContext) => {
     if (interval) {
@@ -323,12 +387,33 @@ export default function (pi: ExtensionAPI) {
     lastStatus = undefined;
     lastStatusThemeSignature = undefined;
     lastStatusWidth = undefined;
+    cachedContextUsage = undefined;
+    contextUsageCached = false;
+    requestStartedAt = undefined;
+    lastRequestDuration = undefined;
   };
 
-  const updateSmartStatus = (ctx: ExtensionContext) => {
+  const getElapsedMilliseconds = () =>
+    requestStartedAt === undefined
+      ? lastRequestDuration
+      : Math.max(0, performance.now() - requestStartedAt);
+
+  const updateSmartStatus = (ctx: ExtensionContext, refreshContextUsage = true) => {
     if (ctx.mode !== "tui" || ctx.ui.theme.name !== THEME_NAME) return;
 
-    const status = buildSmartStatus(ctx, ctx.ui.theme, getTerminalWidth());
+    if (refreshContextUsage || !contextUsageCached) {
+      cachedContextUsage = ctx.getContextUsage();
+      contextUsageCached = true;
+    }
+
+    const status = buildSmartStatus(
+      ctx,
+      ctx.ui.theme,
+      getTerminalWidth(),
+      cachedContextUsage,
+      getElapsedMilliseconds(),
+      requestStartedAt !== undefined,
+    );
     if (status !== lastStatus) {
       ctx.ui.setStatus(STATUS_KEY, status);
       lastStatus = status;
@@ -351,6 +436,8 @@ export default function (pi: ExtensionAPI) {
       lastStatus = undefined;
       lastStatusThemeSignature = undefined;
       lastStatusWidth = undefined;
+      cachedContextUsage = undefined;
+      contextUsageCached = false;
       return;
     }
 
@@ -440,7 +527,11 @@ export default function (pi: ExtensionAPI) {
       indicatorInstalled = true;
     }
 
-    if (!statusInstalled || statusThemeChanged || statusWidthChanged) updateSmartStatus(ctx);
+    if (!statusInstalled || statusThemeChanged || statusWidthChanged) {
+      updateSmartStatus(ctx, !contextUsageCached);
+    } else if (requestStartedAt !== undefined) {
+      updateSmartStatus(ctx, false);
+    }
   };
 
   const refreshSmartStatus = (ctx: ExtensionContext) => {
@@ -462,6 +553,22 @@ export default function (pi: ExtensionAPI) {
       interval = setInterval(() => syncUi(ctx), POLL_INTERVAL_MS);
       interval.unref?.();
     }
+  });
+
+  pi.on("agent_start", (_event, ctx) => {
+    if (requestStartedAt === undefined) {
+      requestStartedAt = performance.now();
+      lastRequestDuration = undefined;
+    }
+    refreshSmartStatus(ctx);
+  });
+
+  pi.on("agent_settled", (_event, ctx) => {
+    if (requestStartedAt !== undefined) {
+      lastRequestDuration = Math.max(0, performance.now() - requestStartedAt);
+      requestStartedAt = undefined;
+    }
+    refreshSmartStatus(ctx);
   });
 
   pi.on("turn_end", (_event, ctx) => refreshSmartStatus(ctx));
