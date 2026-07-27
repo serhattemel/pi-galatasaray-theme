@@ -20,6 +20,24 @@ const CONTEXT_BAR_COLORS = [
   [126, 21, 48], // #7E1530
 ] as const;
 const CONTEXT_BAR_WIDTH = CONTEXT_BAR_COLORS.length;
+const FULL_STATUS_MIN_WIDTH = 60;
+const COMPACT_STATUS_MIN_WIDTH = 40;
+const MINIMAL_STATUS_MIN_WIDTH = 28;
+const STATUS_THEME_COLORS = [
+  "error",
+  "dim",
+  "accent",
+  "warning",
+  "text",
+  "muted",
+  "thinkingOff",
+  "thinkingMinimal",
+  "thinkingLow",
+  "thinkingMedium",
+  "thinkingHigh",
+  "thinkingXhigh",
+  "thinkingMax",
+] as const;
 
 const LOGO_LINES = String.raw`
               ▒▓▓▓▓▓▓▓▓▓▒
@@ -119,17 +137,98 @@ function colorContextCell(
   return `${ansi}${text}\x1b[39m`;
 }
 
-function buildContextStatus(ctx: ExtensionContext, theme: Theme): string {
-  const brand = [
-    theme.fg("error", theme.bold("GS")),
-    theme.fg("dim", "·"),
-    theme.fg("accent", theme.bold("1905")),
-  ].join(" ");
+type ThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
+
+function sanitizeStatusText(text: string): string {
+  return text
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\|$)/gu, "")
+    .replace(/\x1b[PX^_][\s\S]*?(?:\x1b\\|$)/gu, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, "")
+    .replace(/\x1b[@-_]/gu, "")
+    .replace(/[\x00-\x1f\x7f-\x9f]/gu, "");
+}
+
+function getThinkingLevel(ctx: ExtensionContext): ThinkingLevel {
+  return ctx.model?.reasoning ? (ctx.thinkingLevel ?? "off") : "off";
+}
+
+function thinkingLabel(level: ThinkingLevel, compact: boolean): string {
+  if (!compact) return level;
+  switch (level) {
+    case "minimal":
+      return "min";
+    case "medium":
+      return "med";
+    case "high":
+      return "hi";
+    case "xhigh":
+      return "xhi";
+    default:
+      return level;
+  }
+}
+
+function colorThinkingLevel(
+  level: ThinkingLevel,
+  theme: Theme,
+  compact = false,
+): string {
+  const label = thinkingLabel(level, compact);
+  switch (level) {
+    case "minimal":
+      return theme.fg("thinkingMinimal", label);
+    case "low":
+      return theme.fg("thinkingLow", label);
+    case "medium":
+      return theme.fg("thinkingMedium", label);
+    case "high":
+      return theme.fg("thinkingHigh", label);
+    case "xhigh":
+      return theme.fg("thinkingXhigh", label);
+    case "max":
+      return theme.fg("thinkingMax", label);
+    default:
+      return theme.fg("thinkingOff", label);
+  }
+}
+
+function buildContextBar(theme: Theme, visualPercent: number, width: number): string {
+  const filledCells = Math.round((visualPercent / 100) * width);
+  return Array.from({ length: width }, (_, index) => {
+    if (index >= filledCells) return theme.fg("dim", "░");
+    const colorIndex =
+      width === 1
+        ? 0
+        : Math.round((index * (CONTEXT_BAR_COLORS.length - 1)) / (width - 1));
+    return colorContextCell(theme, CONTEXT_BAR_COLORS[colorIndex]!, "█");
+  }).join("");
+}
+
+function compactModelId(modelId: string, width: number): string {
+  return sanitizeStatusText(truncateToWidth(sanitizeStatusText(modelId), width, "…"));
+}
+
+function getTerminalWidth(): number {
+  return Math.max(1, process.stdout.columns ?? 80);
+}
+
+function getStatusThemeSignature(theme: Theme): string {
+  return [
+    theme.name ?? "",
+    theme.getColorMode(),
+    ...STATUS_THEME_COLORS.map((color) => theme.getFgAnsi(color)),
+  ].join("|");
+}
+
+function buildSmartStatus(
+  ctx: ExtensionContext,
+  theme: Theme,
+  terminalWidth: number,
+): string {
   const usage = ctx.getContextUsage();
   const percent = usage?.percent;
   const isKnown = typeof percent === "number" && Number.isFinite(percent);
   const visualPercent = isKnown ? Math.min(100, Math.max(0, percent)) : 0;
-  const filledCells = Math.round((visualPercent / 100) * CONTEXT_BAR_WIDTH);
   const percentageText = isKnown ? `${Math.round(percent)}%` : "?%";
   const percentage = !isKnown
     ? theme.fg("dim", percentageText)
@@ -138,16 +237,62 @@ function buildContextStatus(ctx: ExtensionContext, theme: Theme): string {
       : percent > 70
         ? theme.fg("warning", percentageText)
         : theme.fg("text", percentageText);
-  const bar = Array.from({ length: CONTEXT_BAR_WIDTH }, (_, index) => {
-    if (index >= filledCells) return theme.fg("dim", "░");
-    return colorContextCell(theme, CONTEXT_BAR_COLORS[index]!, "█");
-  }).join("");
+  const modelId = ctx.model?.id ?? "no-model";
+  const thinkingLevel = getThinkingLevel(ctx);
+  const separator = theme.fg("dim", "·");
+
+  if (terminalWidth >= FULL_STATUS_MIN_WIDTH) {
+    const brand = [
+      theme.fg("error", theme.bold("GS")),
+      separator,
+      theme.fg("accent", theme.bold("1905")),
+    ].join(" ");
+    return [
+      brand,
+      separator,
+      percentage,
+      theme.fg("dim", "[") +
+        buildContextBar(theme, visualPercent, CONTEXT_BAR_WIDTH) +
+        theme.fg("dim", "]"),
+      separator,
+      theme.fg("muted", compactModelId(modelId, 18)),
+      separator,
+      colorThinkingLevel(thinkingLevel, theme),
+    ].join(" ");
+  }
+
+  if (terminalWidth >= COMPACT_STATUS_MIN_WIDTH) {
+    return [
+      theme.fg("error", theme.bold("GS")),
+      separator,
+      percentage,
+      theme.fg("dim", "[") +
+        buildContextBar(theme, visualPercent, CONTEXT_BAR_WIDTH) +
+        theme.fg("dim", "]"),
+      separator,
+      theme.fg("muted", compactModelId(modelId, 8)),
+      separator,
+      colorThinkingLevel(thinkingLevel, theme, true),
+    ].join(" ");
+  }
+
+  if (terminalWidth >= MINIMAL_STATUS_MIN_WIDTH) {
+    return [
+      theme.fg("error", theme.bold("GS")),
+      percentage,
+      theme.fg("muted", compactModelId(modelId, 8)),
+      colorThinkingLevel(thinkingLevel, theme, true),
+      theme.fg("dim", "[") +
+        buildContextBar(theme, visualPercent, Math.min(5, CONTEXT_BAR_WIDTH)) +
+        theme.fg("dim", "]"),
+    ].join(" ");
+  }
 
   return [
-    brand,
-    theme.fg("dim", "·"),
     percentage,
-    theme.fg("dim", "[") + bar + theme.fg("dim", "]"),
+    theme.fg("muted", compactModelId(modelId, 5)),
+    colorThinkingLevel(thinkingLevel, theme, true),
+    buildContextBar(theme, visualPercent, Math.min(5, CONTEXT_BAR_WIDTH)),
   ].join(" ");
 }
 
@@ -157,7 +302,8 @@ export default function (pi: ExtensionAPI) {
   let indicatorInstalled = false;
   let statusInstalled = false;
   let lastStatus: string | undefined;
-  let lastStatusTheme: Theme | undefined;
+  let lastStatusThemeSignature: string | undefined;
+  let lastStatusWidth: number | undefined;
 
   const resetUi = (ctx?: ExtensionContext) => {
     if (interval) {
@@ -175,13 +321,14 @@ export default function (pi: ExtensionAPI) {
     indicatorInstalled = false;
     statusInstalled = false;
     lastStatus = undefined;
-    lastStatusTheme = undefined;
+    lastStatusThemeSignature = undefined;
+    lastStatusWidth = undefined;
   };
 
-  const updateContextStatus = (ctx: ExtensionContext) => {
+  const updateSmartStatus = (ctx: ExtensionContext) => {
     if (ctx.mode !== "tui" || ctx.ui.theme.name !== THEME_NAME) return;
 
-    const status = buildContextStatus(ctx, ctx.ui.theme);
+    const status = buildSmartStatus(ctx, ctx.ui.theme, getTerminalWidth());
     if (status !== lastStatus) {
       ctx.ui.setStatus(STATUS_KEY, status);
       lastStatus = status;
@@ -202,14 +349,19 @@ export default function (pi: ExtensionAPI) {
       indicatorInstalled = false;
       statusInstalled = false;
       lastStatus = undefined;
-      lastStatusTheme = undefined;
+      lastStatusThemeSignature = undefined;
+      lastStatusWidth = undefined;
       return;
     }
 
-    const statusThemeChanged = lastStatusTheme !== ctx.ui.theme;
-    if (statusThemeChanged) {
+    const statusThemeSignature = getStatusThemeSignature(ctx.ui.theme);
+    const statusThemeChanged = lastStatusThemeSignature !== statusThemeSignature;
+    const terminalWidth = getTerminalWidth();
+    const statusWidthChanged = lastStatusWidth !== terminalWidth;
+    if (statusThemeChanged || statusWidthChanged) {
       lastStatus = undefined;
-      lastStatusTheme = ctx.ui.theme;
+      lastStatusThemeSignature = statusThemeSignature;
+      lastStatusWidth = terminalWidth;
     }
 
     if (!headerInstalled) {
@@ -288,10 +440,10 @@ export default function (pi: ExtensionAPI) {
       indicatorInstalled = true;
     }
 
-    if (!statusInstalled || statusThemeChanged) updateContextStatus(ctx);
+    if (!statusInstalled || statusThemeChanged || statusWidthChanged) updateSmartStatus(ctx);
   };
 
-  const refreshContextStatus = (ctx: ExtensionContext) => {
+  const refreshSmartStatus = (ctx: ExtensionContext) => {
     if (ctx.mode !== "tui") return;
 
     if (ctx.ui.theme.name !== THEME_NAME || !statusInstalled) {
@@ -299,7 +451,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    updateContextStatus(ctx);
+    updateSmartStatus(ctx);
   };
 
   pi.on("session_start", (_event, ctx) => {
@@ -312,10 +464,11 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.on("turn_end", (_event, ctx) => refreshContextStatus(ctx));
-  pi.on("session_compact", (_event, ctx) => refreshContextStatus(ctx));
-  pi.on("model_select", (_event, ctx) => refreshContextStatus(ctx));
-  pi.on("session_tree", (_event, ctx) => refreshContextStatus(ctx));
+  pi.on("turn_end", (_event, ctx) => refreshSmartStatus(ctx));
+  pi.on("session_compact", (_event, ctx) => refreshSmartStatus(ctx));
+  pi.on("model_select", (_event, ctx) => refreshSmartStatus(ctx));
+  pi.on("thinking_level_select", (_event, ctx) => refreshSmartStatus(ctx));
+  pi.on("session_tree", (_event, ctx) => refreshSmartStatus(ctx));
 
   pi.on("session_shutdown", (_event, ctx) => {
     resetUi(ctx);

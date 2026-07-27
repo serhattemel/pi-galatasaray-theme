@@ -22,7 +22,7 @@
 | No | Özellik | Kullanıcıya faydası | Öncelik | Durum |
 |---:|---|---|:---:|---|
 | 5 | `/gs-settings` menüsü | Logo boyutu, animasyon, durum çubuğu ve hareket azaltma seçeneklerini yönetir | Yüksek | ⏳ Planlandı |
-| 6 | Akıllı GS durum çubuğu | Aktif model, thinking seviyesi ve context kullanımını gösterir | Yüksek | ⏳ Planlandı |
+| 6 | Akıllı GS durum çubuğu | Aktif model, thinking seviyesi ve context kullanımını gösterir | Yüksek | ✅ Tamamlandı |
 | 7 | Context kullanım çubuğu | Token doluluk oranını kırmızı-sarı ilerleme çubuğuyla gösterir | Yüksek | ✅ Tamamlandı |
 | 8 | `/gs-doctor` komutu | Tema, eklenti, Unicode ve truecolor kurulum sorunlarını teşhis eder | Yüksek | ⏳ Planlandı |
 | 9 | Responsive görünüm testleri | Farklı terminal genişliklerinde taşma ve kesilmeyi otomatik kontrol eder | Yüksek | ⏳ Planlandı |

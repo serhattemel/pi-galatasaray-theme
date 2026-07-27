@@ -10,6 +10,7 @@ Unofficial Galatasaray-inspired theme and startup interface for [Pi Agent](https
 - Responsive full, compact, and text-only startup branding
 - Custom block-art startup logo
 - Custom startup header, working indicator, and status badge
+- Smart GS status with active model and thinking level
 - Light-yellow-to-deep-red context usage progress bar
 
 ## Installation
