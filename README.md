@@ -12,7 +12,17 @@ Unofficial Galatasaray-inspired theme and startup interface for [Pi Agent](https
 
 ## Installation
 
-Copy the files into your global Pi configuration directory:
+Install the theme and extension directly from GitHub:
+
+```bash
+pi install git:github.com/serhattemel/pi-galatasaray-theme
+```
+
+Then open `/settings`, select **Galatasaray**, and run `/reload` or restart Pi.
+
+### Manual installation
+
+Alternatively, copy the files into your global Pi configuration directory:
 
 ```text
 themes/galatasaray.json       -> ~/.pi/agent/themes/galatasaray.json
@@ -21,15 +31,21 @@ extensions/galatasaray-ui.ts  -> ~/.pi/agent/extensions/galatasaray-ui.ts
 
 On Windows, `~` normally corresponds to `C:\Users\<username>`.
 
-Then:
+Then start Pi, select **Galatasaray** from `/settings`, and run `/reload`.
 
-1. Start Pi Agent.
-2. Open `/settings` and select **Galatasaray** as the theme.
-3. Run `/reload` or restart Pi.
+## Update
+
+```bash
+pi update --extensions
+```
 
 ## Uninstall
 
-Delete the two installed files and restart Pi:
+```bash
+pi remove git:github.com/serhattemel/pi-galatasaray-theme
+```
+
+For a manual installation, delete these files and restart Pi:
 
 ```text
 ~/.pi/agent/themes/galatasaray.json
